@@ -92,6 +92,8 @@ Legend: `[ ]` todo, `[~]` in progress, `[x]` done. Each phase ends with a checkp
 - [~] `/unlink` for self (mod-forced unlink not built yet)
 - [x] Audit table written on every role change with actor, target, reason
 - [x] Community voting (added 2026-09-07): `/rubric vote` settings, `votes` + `ballots` tables, vote post with Admit/Reject/Close buttons and live tally, eligibility rules, 60 s sweeper, escalation to mod review below quorum, DMs on every outcome, `/votes` list, pure `tallyOutcome`/`shouldVote` under test
+- [x] Intake question (added 2026-09-21): `/rubric intake`, modal before the GitHub link, answer shown on vote and review posts
+- [x] Lifecycle roles (added 2026-09-21): `/rubric roles` for unverified / verified / accepted, opt-in member intent for the on-join role, `/unlink` resets
 
 **Checkpoint:** a mod can handle a borderline applicant entirely from Discord without touching the server.
 

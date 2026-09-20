@@ -70,6 +70,8 @@ export const reviews = sqliteTable(
       .default('open'),
     messageId: text('message_id'),
     note: text('note'),
+    /** the applicant's answer to the intake question, if the guild asks one */
+    statement: text('statement'),
     createdAt: text('created_at').notNull().default(now),
     resolvedAt: text('resolved_at'),
     resolvedBy: text('resolved_by'),
@@ -89,6 +91,8 @@ export const votes = sqliteTable(
     scoreId: integer('score_id').notNull(),
     /** tier whose role is granted if the vote passes */
     tier: text('tier').notNull(),
+    /** the applicant's answer to the intake question, shown on the vote post */
+    statement: text('statement'),
     status: text('status', { enum: ['open', 'admitted', 'rejected', 'escalated', 'cancelled'] })
       .notNull()
       .default('open'),

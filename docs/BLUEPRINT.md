@@ -297,6 +297,30 @@ Mechanics:
 
 Why this is the right shape: the score stays the source of truth about the GitHub, and the community decides what to do with it. Communities that distrust automation can set `scope: all`; communities that only want humans on the edge cases keep the default.
 
+## 8c. Intake question and lifecycle roles
+
+Both per guild, both off by default. Requested by the first community using the bot.
+
+```jsonc
+"intake": { "askReason": false, "prompt": "Why do you want to join?" },
+"roles":  { "unverifiedRoleId": null, "verifiedRoleId": null, "acceptedRoleId": null }
+```
+
+**Intake.** With `askReason` on, `/verify` opens a modal with one paragraph field (10 to 500 characters) before the Link GitHub button. The answer is held in memory next to the interaction token, keyed by the OAuth nonce, so it never travels in a URL. It is stored on the vote or review row and rendered as a block quote on that post, with mentions defused. It does not affect the score.
+
+**Lifecycle.** A second axis next to tiers, for communities that gate on process rather than on score:
+
+| Stage | Trigger | Roles |
+|---|---|---|
+| joined | member joins | + unverified |
+| verified | GitHub ownership proven, any score, unless hard-blocked | + verified, − unverified |
+| accepted | admitted by score, by vote, or by a mod | + accepted, + verified, − unverified, plus the tier role |
+| reset | `/unlink` | − verified, − accepted, + unverified |
+
+Promotion beyond `accepted` (for example Trial Member to Member) is deliberately manual. The bot has no view of how active someone is, and a community's sense of "sufficiently active" should not be a number.
+
+The `joined` stage is the only thing in the bot that needs a privileged gateway intent. It is opt-in through `ENABLE_MEMBER_INTENT=1` so that installs which do not use it keep working with zero privileged intents, and `/rubric roles` warns when an unverified role is mapped but the intent is off.
+
 ## 9. Growth features (each under one hour)
 
 - **SVG badge**: `GET /badge/:login.svg`, shields style, "Cracked Score 78 · Shipper", cached 24 h. People paste it into their README and every badge links back to the repo.

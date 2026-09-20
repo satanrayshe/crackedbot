@@ -17,11 +17,11 @@ import { snowflakeToDate } from '../lib/snowflake.js';
 import type { VerifyState } from '../lib/state.js';
 import { type Placement, place, type Rubric, type ScoreResult, score } from '../scoring/index.js';
 import { type GuildConfig, getGuild } from './guilds.js';
-import { logAudit, sendTo, syncTierRoles, upsertLink } from './members.js';
+import { applyStage, logAudit, sendTo, syncTierRoles, upsertLink } from './members.js';
 import { openReview } from './reviews.js';
 import { openVote, shouldVote, voteChannel } from './votes.js';
 
-export { logAudit, sendTo, syncTierRoles, upsertLink } from './members.js';
+export { applyStage, logAudit, sendTo, syncTierRoles, upsertLink } from './members.js';
 export { latestScore } from './scores.js';
 
 const DAY = 86_400_000;
@@ -30,6 +30,8 @@ export interface Scored {
   analysis: Analysis;
   result: ScoreResult;
   scoreId: number;
+  /** the applicant's intake answer, when the guild asks one and this run came from /verify */
+  statement?: string | null;
 }
 
 /** Analyze + score + persist. Works with any token. */
@@ -120,8 +122,10 @@ export async function applyPlacement(
     try {
       const member = await guild.members.fetch(discordId);
       await syncTierRoles(member, g.rubric, placement.grantTier.roleId);
+      await applyStage(member, g.rubric, 'accepted');
     } catch (err) {
-      roleError = 'Placed, but I could not update roles. A mod needs to move my role above the tier roles.';
+      roleError =
+        'Placed, but I could not update roles. A mod needs to move my role above the roles I assign.';
       log.warn({ guildId: guild.id, err: String(err) }, 'role sync failed');
     }
     await sendTo(ctx, g.row.verifyChannelId, {
@@ -137,6 +141,7 @@ export async function applyPlacement(
       scoreId,
       placement,
       reasons: placement.reasons,
+      statement: scored.statement,
     });
   }
 
@@ -160,8 +165,10 @@ export async function completeVerification(
   token: string,
   viewerLogin: string,
   viewerId: string,
+  /** the applicant's intake answer, null when the guild does not ask one */
+  statement: string | null = null,
 ): Promise<
-  | { ok: true; status: Placement['status']; login: string; total: number; tier: string }
+  | { ok: true; status: Placement['status']; route: Route; login: string; total: number; tier: string }
   | { ok: false; message: string }
 > {
   const guild = await ctx.client.guilds.fetch(state.g).catch(() => null);
@@ -202,10 +209,24 @@ export async function completeVerification(
     return { ok: false, message: 'GitHub analysis failed. Go back to Discord and try again in a minute.' };
   }
 
+  scored.statement = statement;
+
   const placement = place(scored.result, scored.analysis, g.rubric, {
     discordCreatedAt: snowflakeToDate(state.u),
     sharedGithub: shared,
   });
+
+  // Ownership is proven at this point whatever the score says, so the verified role goes on now.
+  // A hard block (shared GitHub, commit bot) is the one case that does not earn it.
+  if (placement.status !== 'blocked') {
+    try {
+      const member = await guild.members.fetch(state.u);
+      await applyStage(member, g.rubric, 'verified');
+    } catch (err) {
+      log.warn({ guildId: guild.id, err: String(err) }, 'could not apply verified role');
+    }
+  }
+
   const applied = await applyPlacement(ctx, guild, g, state.u, scored, placement);
 
   const components = applied.route === 'rejected' ? [requestReviewButton(scored.scoreId)] : [];
@@ -232,6 +253,7 @@ export async function completeVerification(
   return {
     ok: true,
     status: placement.status,
+    route: applied.route,
     login: viewerLogin,
     total: scored.result.total,
     tier: placement.tier.name,

@@ -7,7 +7,15 @@ import { log } from '../lib/logger.js';
 import { snowflakeToDate } from '../lib/snowflake.js';
 import { type Placement, type PlacementStatus, place, type Rubric } from '../scoring/index.js';
 import { type GuildConfig, getGuild } from './guilds.js';
-import { dmUser, logAudit, sendTo, syncTierRoles, upsertLink } from './members.js';
+import {
+  applyStage,
+  dmUser,
+  logAudit,
+  quoteStatement,
+  sendTo,
+  syncTierRoles,
+  upsertLink,
+} from './members.js';
 import { openReview } from './reviews.js';
 import { loadScore } from './scores.js';
 import type { Scored } from './verification.js';
@@ -87,8 +95,9 @@ export function voteButtons(voteId: number, disabled = false) {
 export function renderVoteContent(v: VoteRow, total: number, tierName: string): string {
   const head = `🗳️ **Vote #${v.id}** · <@${v.discordId}> as [${v.githubLogin}](<https://github.com/${v.githubLogin}>) · scored **${total}** (${tierName})`;
   const rule = `needs **${v.thresholdPct}%** yes of at least **${v.quorum}** ballots`;
+  const why = quoteStatement(v.statement);
   if (v.status === 'open') {
-    return `${head}\n👍 **${v.yes}** · 👎 **${v.no}** · ${rule} · closes <t:${unix(v.closesAt)}:R>`;
+    return `${head}${why}\n👍 **${v.yes}** · 👎 **${v.no}** · ${rule} · closes <t:${unix(v.closesAt)}:R>`;
   }
   const verdict = {
     admitted: `✅ **Admitted** as ${v.tier}`,
@@ -121,6 +130,7 @@ export async function openVote(
       githubLogin: scored.analysis.profile.login,
       scoreId: scored.scoreId,
       tier: placement.grantTier.name,
+      statement: scored.statement ?? null,
       channelId,
       quorum: v.quorum,
       thresholdPct: Math.round(v.threshold * 100),
@@ -260,6 +270,7 @@ export async function resolveVote(
     try {
       const member = await guild.members.fetch(fresh.discordId);
       await syncTierRoles(member, g.rubric, tier.roleId);
+      await applyStage(member, g.rubric, 'accepted');
     } catch (err) {
       log.warn({ voteId: v.id, err: String(err) }, 'role sync after vote failed');
     }
@@ -290,6 +301,7 @@ export async function resolveVote(
         reasons: [
           `Vote #${fresh.id} closed without quorum (👍 ${fresh.yes} · 👎 ${fresh.no}, needed ${fresh.quorum})`,
         ],
+        statement: fresh.statement,
       });
     }
     await dmUser(ctx, fresh.discordId, {

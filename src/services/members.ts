@@ -51,6 +51,54 @@ export async function syncTierRoles(
     await member.roles.add(grantRoleId, 'crackedbot tier');
 }
 
+/** Render an applicant's intake answer as a Discord block quote, or nothing. Mentions are defused. */
+export function quoteStatement(statement: string | null | undefined, max = 500): string {
+  const s = (statement ?? '').trim();
+  if (!s) return '';
+  const clipped = s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  const safe = clipped.replace(/@/g, '@​').replace(/\r?\n/g, '\n> ');
+  return `\n**Why they want to join**\n> ${safe}`;
+}
+
+/**
+ * Lifecycle stages, separate from tiers:
+ *   joined   -> unverified role
+ *   verified -> GitHub ownership proven: verified role on, unverified off
+ *   accepted -> admitted by score, vote, or mod: accepted role on (plus verified), unverified off
+ *   reset    -> unlinked: verified and accepted off, unverified back on
+ */
+export type Stage = 'joined' | 'verified' | 'accepted' | 'reset';
+
+/** Which lifecycle roles a stage adds and removes. Pure. */
+export function stageRoles(roles: Rubric['roles'], stage: Stage): { add: string[]; remove: string[] } {
+  const ids = (xs: (string | null)[]) => xs.filter((x): x is string => Boolean(x));
+  switch (stage) {
+    case 'joined':
+      return { add: ids([roles.unverifiedRoleId]), remove: [] };
+    case 'verified':
+      return { add: ids([roles.verifiedRoleId]), remove: ids([roles.unverifiedRoleId]) };
+    case 'accepted':
+      return {
+        add: ids([roles.verifiedRoleId, roles.acceptedRoleId]),
+        remove: ids([roles.unverifiedRoleId]),
+      };
+    case 'reset':
+      return {
+        add: ids([roles.unverifiedRoleId]),
+        remove: ids([roles.verifiedRoleId, roles.acceptedRoleId]),
+      };
+  }
+}
+
+/** Move a member to a lifecycle stage. No-op when the guild has no lifecycle roles configured. */
+export async function applyStage(member: GuildMember, rubric: Rubric, stage: Stage): Promise<void> {
+  const { add, remove } = stageRoles(rubric.roles, stage);
+  const toRemove = remove.filter((r) => member.roles.cache.has(r));
+  const toAdd = add.filter((r) => !member.roles.cache.has(r));
+  if (toRemove.length) await member.roles.remove(toRemove, `crackedbot: ${stage}`);
+  if (toAdd.length) await member.roles.add(toAdd, `crackedbot: ${stage}`);
+}
+
 export function upsertLink(
   ctx: AppContext,
   guildId: string,

@@ -104,13 +104,15 @@ export function createApp(ctx: AppContext): Hono {
         502,
       );
     }
+    const held = ctx.verifier.take(v.state.n);
     const out = await completeVerification(
       ctx,
       v.state,
-      ctx.verifier.takeToken(v.state.n),
+      held?.token ?? null,
       token,
       viewer.login,
       String(viewer.databaseId),
+      held?.statement ?? null,
     );
     if (!out.ok)
       return c.html(
@@ -122,7 +124,8 @@ export function createApp(ctx: AppContext): Hono {
       review: 'Sent to manual review. A mod will take a look.',
       rejected: "Didn't clear this server's bar. The receipt in Discord explains why.",
       blocked: 'Blocked. The receipt in Discord explains why.',
-    }[out.status];
+      vote: 'Your application is now up for a community vote. You will get a DM with the result.',
+    }[out.route];
     return c.html(
       page(
         'Done',

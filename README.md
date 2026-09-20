@@ -55,6 +55,22 @@ Off by default. `/rubric vote enabled:true` puts applicants in front of the memb
 - Voters need a tier role, or a specific role you choose.
 - At the deadline, or when a mod clicks Close now: yes-share at or above the threshold with quorum met admits, below it rejects, and no quorum escalates to the mod review queue. The applicant gets a DM either way.
 
+## Intake question and lifecycle roles
+
+Both optional, both per server.
+
+- `/rubric intake ask-reason:true` makes `/verify` open a short form first ("Why do you want to join?", or your own prompt). The answer appears on the vote post and the mod review post, and nowhere else.
+- `/rubric roles unverified:@Unverified verified:@Verified accepted:@Trial` adds a lifecycle next to the tiers:
+
+  | Moment | Role change |
+  |---|---|
+  | member joins | + unverified (needs `ENABLE_MEMBER_INTENT=1` and the Server Members Intent) |
+  | GitHub ownership proven | + verified, − unverified |
+  | admitted by score, vote, or mod | + accepted, + tier role |
+  | `/unlink` | − verified, − accepted, + unverified |
+
+  Promotion beyond the accepted role, for example Trial Member to Member, is left to moderators.
+
 ## Run it
 
 Hosted setup with every click spelled out is in [`docs/DEPLOY.md`](docs/DEPLOY.md). The short version:

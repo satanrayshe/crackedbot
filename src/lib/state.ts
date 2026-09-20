@@ -46,22 +46,30 @@ type Outcome = { ok: true; state: VerifyState } | { ok: false; error: VerifyStat
 
 export class StateVerifier {
   private used = new Map<string, number>();
-  private pending = new Map<string, { token: string; exp: number }>();
+  private pending = new Map<string, { token: string; statement: string | null; exp: number }>();
 
   constructor(private readonly secret: string) {}
 
-  /** Hold the interaction token for a nonce until the callback needs it. */
-  remember(nonce: string, interactionToken: string, now = Date.now()): void {
+  /**
+   * Hold the interaction token, and the applicant's intake answer if one was asked,
+   * for a nonce until the callback needs them. Neither travels in the URL.
+   */
+  remember(nonce: string, interactionToken: string, now = Date.now(), statement: string | null = null): void {
     this.sweep(now);
-    this.pending.set(nonce, { token: interactionToken, exp: now + STATE_TTL_MS });
+    this.pending.set(nonce, { token: interactionToken, statement, exp: now + STATE_TTL_MS });
   }
 
-  /** Retrieve and forget the interaction token for a nonce. Null if unknown, expired, or restarted. */
-  takeToken(nonce: string, now = Date.now()): string | null {
+  /** Retrieve and forget what was remembered for a nonce. Null if unknown, expired, or restarted. */
+  take(nonce: string, now = Date.now()): { token: string; statement: string | null } | null {
     const p = this.pending.get(nonce);
     this.pending.delete(nonce);
     if (!p || p.exp < now) return null;
-    return p.token;
+    return { token: p.token, statement: p.statement };
+  }
+
+  /** Token-only form of take(). */
+  takeToken(nonce: string, now = Date.now()): string | null {
+    return this.take(nonce, now)?.token ?? null;
   }
 
   /** Check signature and expiry without consuming the nonce. */

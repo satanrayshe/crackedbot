@@ -22,6 +22,9 @@ export type PresetName = (typeof PRESET_NAMES)[number];
 export const VOTE_SCOPES = ['review', 'admitted', 'all'] as const;
 export type VoteScope = (typeof VOTE_SCOPES)[number];
 
+/** a Discord id */
+const snowflake = z.string().regex(/^\d{17,20}$/);
+
 const tierSchema = z.object({
   name: z.string().min(1).max(32),
   min: z.number().int().min(0).max(100),
@@ -99,6 +102,27 @@ export const rubricSchema = z
         quorum: z.number().int().min(1).max(500).default(3),
         /** share of yes ballots needed to admit, 0..1 */
         threshold: z.number().min(0.5).max(1).default(0.6),
+      })
+      .prefault({}),
+    /** What /verify asks the applicant before the GitHub link. */
+    intake: z
+      .object({
+        askReason: z.boolean().default(false),
+        /** modal field label; Discord caps labels at 45 characters */
+        prompt: z.string().min(3).max(45).default('Why do you want to join?'),
+      })
+      .prefault({}),
+    /**
+     * Lifecycle roles, independent of tier roles. All optional.
+     * unverified: given on join (needs the Server Members intent, ENABLE_MEMBER_INTENT=1)
+     * verified:   given when GitHub ownership is proven, unverified removed
+     * accepted:   given on admission by score, vote, or mod approval (e.g. "Trial Member")
+     */
+    roles: z
+      .object({
+        unverifiedRoleId: snowflake.nullable().default(null),
+        verifiedRoleId: snowflake.nullable().default(null),
+        acceptedRoleId: snowflake.nullable().default(null),
       })
       .prefault({}),
   })

@@ -16,6 +16,15 @@ const schema = z.object({
   GITHUB_APP_FALLBACK_TOKEN: z.string().optional(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   REPO_URL: z.string().default('https://github.com/crackedbot/crackedbot'),
+  /**
+   * '1' subscribes to member joins so the unverified role can be given on arrival.
+   * Requires the privileged Server Members Intent to be switched on in the Discord Developer Portal,
+   * otherwise login fails with "Used disallowed intents". Off by default.
+   */
+  ENABLE_MEMBER_INTENT: z
+    .enum(['0', '1'])
+    .default('0')
+    .transform((v) => v === '1'),
 });
 
 export type Config = z.infer<typeof schema>;

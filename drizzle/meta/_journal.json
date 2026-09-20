@@ -15,6 +15,13 @@
       "when": 1788799714671,
       "tag": "0001_lying_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789937146372,
+      "tag": "0002_mysterious_tarot",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,8 @@ import { makeInteractionHandler } from './discord/handlers.js';
 import { createApp } from './http/app.js';
 import { log } from './lib/logger.js';
 import { StateVerifier } from './lib/state.js';
+import { getGuild } from './services/guilds.js';
+import { applyStage } from './services/members.js';
 import { sweepVotes } from './services/votes.js';
 
 async function main(): Promise<void> {
@@ -15,7 +17,11 @@ async function main(): Promise<void> {
   const { db, sqlite } = openDb(cfg.DATA_DIR);
   log.info({ dataDir: cfg.DATA_DIR }, 'database ready');
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  // GuildMembers is privileged and opt-in: it is only needed to hand out the unverified role on join.
+  const intents = cfg.ENABLE_MEMBER_INTENT
+    ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+    : [GatewayIntentBits.Guilds];
+  const client = new Client({ intents });
   const ctx: AppContext = {
     cfg,
     db,
@@ -36,6 +42,16 @@ async function main(): Promise<void> {
     }
   });
   client.on(Events.InteractionCreate, makeInteractionHandler(ctx));
+  if (cfg.ENABLE_MEMBER_INTENT) {
+    client.on(Events.GuildMemberAdd, (member) => {
+      if (member.user.bot) return;
+      const { rubric } = getGuild(ctx, member.guild.id);
+      if (!rubric.roles.unverifiedRoleId) return;
+      applyStage(member, rubric, 'joined').catch((err) =>
+        log.warn({ guild: member.guild.id, err: String(err) }, 'could not assign unverified role on join'),
+      );
+    });
+  }
   client.on(Events.GuildCreate, (g) => log.info({ guild: g.id, name: g.name }, 'joined guild'));
   client.on(Events.GuildDelete, (g) => log.info({ guild: g.id }, 'left guild'));
   client.on(Events.Error, (err) => log.error({ err: String(err) }, 'discord client error'));

@@ -113,6 +113,41 @@ export const commands = [
             .setMaxValue(100),
         ),
     )
+    .addSubcommand((s) =>
+      s
+        .setName('intake')
+        .setDescription(
+          'Ask applicants a question before the GitHub link. No options shows current settings.',
+        )
+        .addBooleanOption((o) => o.setName('ask-reason').setDescription('Ask why they want to join'))
+        .addStringOption((o) =>
+          o
+            .setName('prompt')
+            .setDescription('The question, up to 45 characters')
+            .setMinLength(3)
+            .setMaxLength(45),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName('roles')
+        .setDescription('Lifecycle roles: unverified on join, verified on GitHub link, accepted on admission')
+        .addRoleOption((o) =>
+          o.setName('unverified').setDescription('Given on join (needs the member intent)'),
+        )
+        .addRoleOption((o) => o.setName('verified').setDescription('Given once GitHub ownership is proven'))
+        .addRoleOption((o) => o.setName('accepted').setDescription('Given on admission, e.g. Trial Member'))
+        .addStringOption((o) =>
+          o
+            .setName('clear')
+            .setDescription('Remove one of the mappings')
+            .addChoices(
+              { name: 'unverified', value: 'unverified' },
+              { name: 'verified', value: 'verified' },
+              { name: 'accepted', value: 'accepted' },
+            ),
+        ),
+    )
     .addSubcommand((s) => s.setName('export').setDescription('Download the rubric as JSON'))
     .addSubcommand((s) =>
       s

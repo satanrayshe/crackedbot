@@ -1,12 +1,17 @@
 import { gunzipSync } from 'node:zlib';
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   EmbedBuilder,
   type Interaction,
   MessageFlags,
+  ModalBuilder,
+  type ModalSubmitInteraction,
   PermissionFlagsBits,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import { and, desc, eq } from 'drizzle-orm';
 import type { AppContext } from '../context.js';
@@ -31,6 +36,7 @@ import {
 import { type GuildConfig, getGuild, isConfigured, updateGuild } from '../services/guilds.js';
 import {
   applyPlacement,
+  applyStage,
   latestScore,
   logAudit,
   runScore,
@@ -67,6 +73,7 @@ export function makeInteractionHandler(ctx: AppContext) {
     try {
       if (interaction.isChatInputCommand()) await handleCommand(ctx, interaction);
       else if (interaction.isButton()) await handleButton(ctx, interaction);
+      else if (interaction.isModalSubmit()) await handleModal(ctx, interaction);
     } catch (err) {
       log.error({ err: err instanceof Error ? err.stack : String(err) }, 'interaction failed');
       if (interaction.isRepliable()) {
@@ -142,9 +149,40 @@ async function verify(ctx: AppContext, i: ChatInputCommandInteraction<'cached'>)
     });
     return;
   }
+  if (g.rubric.intake.askReason) {
+    const input = new TextInputBuilder()
+      .setCustomId('statement')
+      .setLabel(g.rubric.intake.prompt)
+      .setStyle(TextInputStyle.Paragraph)
+      .setMinLength(10)
+      .setMaxLength(500)
+      .setRequired(true)
+      .setPlaceholder('A few sentences. Members will see this when they vote.');
+    await i.showModal(
+      new ModalBuilder()
+        .setCustomId('verify:intake')
+        .setTitle('Before you link GitHub')
+        .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)),
+    );
+    return;
+  }
+  await sendLink(ctx, i, null);
+}
+
+/** Reply with the one-time Link GitHub button, holding the interaction token and intake answer server-side. */
+async function sendLink(
+  ctx: AppContext,
+  i: ChatInputCommandInteraction<'cached'> | ModalSubmitInteraction<'cached'>,
+  statement: string | null,
+): Promise<void> {
   const nonce = newNonce();
-  ctx.verifier.remember(nonce, i.token);
-  const state = signState(ctx.cfg.STATE_SECRET, { g: i.guildId, u: i.user.id, c: i.channelId, n: nonce });
+  ctx.verifier.remember(nonce, i.token, Date.now(), statement);
+  const state = signState(ctx.cfg.STATE_SECRET, {
+    g: i.guildId,
+    u: i.user.id,
+    c: i.channelId ?? '0',
+    n: nonce,
+  });
   const url = `${ctx.cfg.PUBLIC_URL}/auth/start?s=${encodeURIComponent(state)}`;
   await i.reply({
     content:
@@ -153,6 +191,13 @@ async function verify(ctx: AppContext, i: ChatInputCommandInteraction<'cached'>)
     components: [linkButton(url)],
     ...EPHEMERAL,
   });
+}
+
+async function handleModal(ctx: AppContext, i: ModalSubmitInteraction): Promise<void> {
+  if (!i.inCachedGuild()) return;
+  if (i.customId !== 'verify:intake') return;
+  const statement = i.fields.getTextInputValue('statement').trim();
+  await sendLink(ctx, i, statement || null);
 }
 
 async function scoreCmd(ctx: AppContext, i: ChatInputCommandInteraction<'cached'>): Promise<void> {
@@ -222,6 +267,7 @@ async function unlink(ctx: AppContext, i: ChatInputCommandInteraction<'cached'>)
   if (!elsewhere) ctx.db.delete(scores).where(eq(scores.githubId, link.githubId)).run();
   try {
     await syncTierRoles(i.member, g.rubric, null);
+    await applyStage(i.member, g.rubric, 'reset');
   } catch (err) {
     log.warn({ err: String(err) }, 'role removal failed on unlink');
   }
@@ -384,6 +430,72 @@ async function rubric(ctx: AppContext, i: ChatInputCommandInteraction<'cached'>)
         `• voters: ${v.eligibleRoleId ? `<@&${v.eligibleRoleId}>` : 'anyone holding a tier role'}\n` +
         `• open for ${v.durationHours}h · quorum ${v.quorum} · needs ${Math.round(v.threshold * 100)}% yes\n` +
         `• below quorum → mod review`,
+      allowedMentions: { parse: [] },
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  if (sub === 'intake') {
+    const ask = i.options.getBoolean('ask-reason');
+    const prompt = i.options.getString('prompt');
+    const changed = ask !== null || prompt !== null;
+    if (changed) {
+      const intake = {
+        ...g.rubric.intake,
+        ...(ask !== null ? { askReason: ask } : {}),
+        ...(prompt ? { prompt } : {}),
+      };
+      updateGuild(ctx, i.guildId, { rubric: rubricSchema.parse({ ...g.rubric, intake }) });
+      logAudit(ctx, i.guildId, i.user.id, 'rubric:intake', undefined, JSON.stringify(intake));
+    }
+    const n = getGuild(ctx, i.guildId).rubric.intake;
+    await i.reply({
+      content:
+        `${changed ? 'Saved. ' : ''}Intake question is **${n.askReason ? 'on' : 'off'}**.\n` +
+        `• prompt: “${n.prompt}”\n` +
+        '• the answer is shown on the vote post and the mod review post, and nowhere else',
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  if (sub === 'roles') {
+    const picks = {
+      unverifiedRoleId: i.options.getRole('unverified')?.id,
+      verifiedRoleId: i.options.getRole('verified')?.id,
+      acceptedRoleId: i.options.getRole('accepted')?.id,
+    };
+    const clear = i.options.getString('clear') as 'unverified' | 'verified' | 'accepted' | null;
+    const changed = Boolean(clear) || Object.values(picks).some(Boolean);
+    if (changed) {
+      const roles = { ...g.rubric.roles };
+      for (const [k, v] of Object.entries(picks)) if (v) roles[k as keyof typeof roles] = v;
+      if (clear) roles[`${clear}RoleId`] = null;
+      updateGuild(ctx, i.guildId, { rubric: rubricSchema.parse({ ...g.rubric, roles }) });
+      logAudit(ctx, i.guildId, i.user.id, 'rubric:roles', undefined, JSON.stringify(roles));
+    }
+    const r = getGuild(ctx, i.guildId).rubric.roles;
+    const show = (id: string | null) => (id ? `<@&${id}>` : 'not set');
+    const me = await i.guild.members.fetchMe();
+    const tooHigh = [r.unverifiedRoleId, r.verifiedRoleId, r.acceptedRoleId].filter((id) => {
+      const role = id ? i.guild.roles.cache.get(id) : null;
+      return role && role.position >= me.roles.highest.position;
+    });
+    const notes = [
+      r.unverifiedRoleId && !ctx.cfg.ENABLE_MEMBER_INTENT
+        ? '⚠️ Unverified-on-join is not active: the host must set `ENABLE_MEMBER_INTENT=1` and switch on **Server Members Intent** in the Discord Developer Portal. Verified and accepted work without it.'
+        : null,
+      tooHigh.length
+        ? `⚠️ My role sits below ${tooHigh.map((id) => `<@&${id}>`).join(', ')}. Move my role above them or I cannot assign them.`
+        : null,
+    ].filter(Boolean);
+    await i.reply({
+      content:
+        `${changed ? 'Saved. ' : ''}Lifecycle roles:\n` +
+        `• on join → ${show(r.unverifiedRoleId)}\n` +
+        `• GitHub ownership proven → ${show(r.verifiedRoleId)} (unverified removed)\n` +
+        `• admitted by score, vote, or mod → ${show(r.acceptedRoleId)} plus the tier role\n` +
+        '• promotion beyond that is yours to do by hand' +
+        (notes.length ? `\n${notes.join('\n')}` : ''),
       allowedMentions: { parse: [] },
       ...EPHEMERAL,
     });
@@ -603,6 +715,7 @@ async function handleButton(ctx: AppContext, i: ButtonInteraction): Promise<void
       try {
         const member = await i.guild.members.fetch(r.discordId);
         await syncTierRoles(member, g.rubric, tier.roleId);
+        await applyStage(member, g.rubric, 'accepted');
       } catch {
         roleNote = ' (role assignment failed, check my role position)';
       }
