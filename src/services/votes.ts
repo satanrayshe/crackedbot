@@ -93,7 +93,7 @@ export function voteButtons(voteId: number, disabled = false) {
 }
 
 export function renderVoteContent(v: VoteRow, total: number, tierName: string): string {
-  const head = `🗳️ **Vote #${v.id}** · <@${v.discordId}> as [${v.githubLogin}](<https://github.com/${v.githubLogin}>) · scored **${total}** (${tierName})`;
+  const head = `**Vote #${v.id}** · <@${v.discordId}> as [${v.githubLogin}](<https://github.com/${v.githubLogin}>) · scored **${total}** (${tierName})`;
   const rule = `needs **${v.thresholdPct}%** yes of at least **${v.quorum}** ballots`;
   const why = quoteStatement(v.statement);
   if (v.status === 'open') {
